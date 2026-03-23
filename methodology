@@ -1,0 +1,14 @@
+# Methodology
+
+The project began with a review of widely used short-term trading indicators to determine which tools were most commonly trusted by active traders and technical analysts.
+
+From that initial research, indicators were evaluated for how well they behaved across a focused set of assets including leveraged ETFs, commodities, metals, volatility-related products, and selected crypto-linked instruments.
+
+The final framework moved away from single-indicator dependence and toward a multi-factor model emphasizing:
+
+- momentum exhaustion
+- reversal confirmation
+- volume support
+- higher-timeframe exit logic
+
+The objective was to improve signal quality and reduce false positives for short-term options-oriented decision-making.
