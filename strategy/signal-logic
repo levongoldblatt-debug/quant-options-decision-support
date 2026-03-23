@@ -1,0 +1,31 @@
+# Signal Logic Overview
+
+## Entry Framework
+
+Signals are evaluated in three stages:
+
+### Initial Setup
+A setup begins when price momentum appears exhausted and an oversold reversal condition begins to form.
+
+Typical characteristics:
+- RSI or Stochastic RSI falls from elevated levels into deeply oversold territory
+- MACD remains negative but begins to stabilize
+- histogram shifts from strongly negative toward less negative
+
+### Confirmation
+A setup is promoted only when additional momentum evidence appears.
+
+Typical confirmation:
+- MACD bullish crossover
+- histogram improvement
+- increase in supportive volume
+- timeframe alignment
+
+### Exit
+Exits are based on momentum deterioration or overextension rather than arbitrary fixed exits.
+
+Typical exit indicators:
+- RSI overextension on higher timeframe
+- weakening MACD slope
+- shrinking positive histogram bars
+- early evidence of reversal after upward expansion
