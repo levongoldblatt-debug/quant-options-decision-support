@@ -1,0 +1,65 @@
+//@version=5
+indicator("XLM Multi-Stage Signal System", overlay=true)
+
+// === INPUTS ===
+rsiLength = input.int(14, "RSI Length")
+fastLength = input.int(12, "MACD Fast")
+slowLength = input.int(26, "MACD Slow")
+signalLength = input.int(9, "MACD Signal")
+
+// === TIMEFRAMES ===
+tf_entry = "120"   // 2 hour
+tf_exit  = "240"   // 4 hour
+
+// === RSI (2H) ===
+rsi_2h = request.security(syminfo.tickerid, tf_entry, ta.rsi(close, rsiLength))
+
+// Track prior overbought condition
+var bool wasOverbought = false
+wasOverbought := rsi_2h > 80 ? true : (rsi_2h < 10 ? wasOverbought : wasOverbought)
+
+// === INITIAL SETUP ===
+// RSI crosses DOWN through 10 after being overbought
+initialSetup = wasOverbought and ta.crossunder(rsi_2h, 10)
+
+// === MACD (2H) ===
+[macdLine_2h, signalLine_2h, hist_2h] = request.security(syminfo.tickerid, tf_entry, ta.macd(close, fastLength, slowLength, signalLength))
+
+// === CONFIRMATION ===
+// RSI crosses UP through 10 + MACD crossover
+rsiCrossUp = ta.crossover(rsi_2h, 10)
+macdCrossUp = ta.crossover(macdLine_2h, signalLine_2h)
+
+confirmation = rsiCrossUp and macdCrossUp
+
+// === RSI (4H) ===
+rsi_4h = request.security(syminfo.tickerid, tf_exit, ta.rsi(close, rsiLength))
+
+// === MACD (4H) ===
+[macdLine_4h, signalLine_4h, hist_4h] = request.security(syminfo.tickerid, tf_exit, ta.macd(close, fastLength, slowLength, signalLength))
+
+// MACD rolling over (slope turning down while above signal)
+macdSlopeDown = macdLine_4h < macdLine_4h[1]
+macdAboveSignal = macdLine_4h > signalLine_4h
+
+macdRollOver = macdAboveSignal and macdSlopeDown
+
+// === SELL ===
+sellSignal = (rsi_4h > 80) or macdRollOver
+
+// === PLOTTING ===
+plotshape(initialSetup, title="Initial Buy Setup", location=location.belowbar, color=color.yellow, style=shape.triangleup, size=size.small, text="SETUP")
+
+plotshape(confirmation, title="Buy Confirmation", location=location.belowbar, color=color.green, style=shape.triangleup, size=size.normal, text="BUY")
+
+plotshape(sellSignal, title="Sell Signal", location=location.abovebar, color=color.red, style=shape.triangledown, size=size.normal, text="SELL")
+
+// === ALERT CONDITIONS ===
+alertcondition(initialSetup, title="XLM Initial Buy Setup",
+     message="XLM Initial Buy Setup: RSI crossed down through 10 after >80 (2h) | {{ticker}} @ {{close}} | {{timenow}}")
+
+alertcondition(confirmation, title="XLM BUY CONFIRMED",
+     message="XLM BUY CONFIRMED: RSI crossed up 10 + MACD cross up (2h) | {{ticker}} @ {{close}} | {{timenow}}")
+
+alertcondition(sellSignal, title="XLM SELL",
+     message="XLM SELL: RSI>80 (4h) or MACD rolling over above signal (4h) | {{ticker}} @ {{close}} | {{timenow}}")
