@@ -1,65 +1,145 @@
 //@version=5
-indicator("XLM Multi-Stage Signal System", overlay=true)
+//@version=6
+indicator("XLM Decision Support - Public Sample", overlay=true, max_labels_count=500)
 
-// === INPUTS ===
-rsiLength = input.int(14, "RSI Length")
-fastLength = input.int(12, "MACD Fast")
-slowLength = input.int(26, "MACD Slow")
-signalLength = input.int(9, "MACD Signal")
+//----------------------------------------------------
+// PUBLIC-SAFE INPUTS
+// These are intentionally generic defaults.
+// Replace privately with optimized values if needed.
+//----------------------------------------------------
 
-// === TIMEFRAMES ===
-tf_entry = "120"   // 2 hour
-tf_exit  = "240"   // 4 hour
+// Timeframes
+setupTf  = input.timeframe("120", "Setup / Confirmation Timeframe")
+exitTf   = input.timeframe("240", "Exit Timeframe")
 
-// === RSI (2H) ===
-rsi_2h = request.security(syminfo.tickerid, tf_entry, ta.rsi(close, rsiLength))
+// RSI inputs
+rsiLen               = input.int(14, "RSI Length", minval=2)
+setupUpperThreshold  = input.float(75.0, "Setup: Prior High RSI Threshold", step=0.1)
+setupLowerThreshold  = input.float(20.0, "Setup: Pullback RSI Threshold", step=0.1)
+confirmCrossLevel    = input.float(25.0, "Confirmation: RSI Cross-Up Level", step=0.1)
+exitRsiThreshold     = input.float(78.0, "Exit: High RSI Threshold", step=0.1)
 
-// Track prior overbought condition
-var bool wasOverbought = false
-wasOverbought := rsi_2h > 80 ? true : (rsi_2h < 10 ? wasOverbought : wasOverbought)
+// MACD inputs
+macdFast   = input.int(12, "MACD Fast Length", minval=1)
+macdSlow   = input.int(26, "MACD Slow Length", minval=1)
+macdSignal = input.int(9, "MACD Signal Length", minval=1)
 
-// === INITIAL SETUP ===
-// RSI crosses DOWN through 10 after being overbought
-initialSetup = wasOverbought and ta.crossunder(rsi_2h, 10)
+// Optional filters
+useMacdExitSlope = input.bool(true, "Use MACD rollover exit")
+showLabels       = input.bool(true, "Show chart labels")
+showBg           = input.bool(true, "Highlight signal bars")
 
-// === MACD (2H) ===
-[macdLine_2h, signalLine_2h, hist_2h] = request.security(syminfo.tickerid, tf_entry, ta.macd(close, fastLength, slowLength, signalLength))
+//----------------------------------------------------
+// HELPER FUNCTIONS
+//----------------------------------------------------
+f_rsi(_src, _len) =>
+    ta.rsi(_src, _len)
 
-// === CONFIRMATION ===
-// RSI crosses UP through 10 + MACD crossover
-rsiCrossUp = ta.crossover(rsi_2h, 10)
-macdCrossUp = ta.crossover(macdLine_2h, signalLine_2h)
+f_macd_line(_src, _fast, _slow, _sig) =>
+    [macdLine, signalLine, histLine] = ta.macd(_src, _fast, _slow, _sig)
+    [macdLine, signalLine, histLine]
 
-confirmation = rsiCrossUp and macdCrossUp
+//----------------------------------------------------
+// SETUP TIMEFRAME DATA
+//----------------------------------------------------
+setupRsi = request.security(syminfo.tickerid, setupTf, f_rsi(close, rsiLen), barmerge.gaps_off, barmerge.lookahead_off)
 
-// === RSI (4H) ===
-rsi_4h = request.security(syminfo.tickerid, tf_exit, ta.rsi(close, rsiLength))
+[setupMacd, setupSignal, setupHist] = request.security(
+    syminfo.tickerid,
+    setupTf,
+    f_macd_line(close, macdFast, macdSlow, macdSignal),
+    barmerge.gaps_off,
+    barmerge.lookahead_off
+)
 
-// === MACD (4H) ===
-[macdLine_4h, signalLine_4h, hist_4h] = request.security(syminfo.tickerid, tf_exit, ta.macd(close, fastLength, slowLength, signalLength))
+// EXIT TIMEFRAME DATA
+exitRsi = request.security(syminfo.tickerid, exitTf, f_rsi(close, rsiLen), barmerge.gaps_off, barmerge.lookahead_off)
 
-// MACD rolling over (slope turning down while above signal)
-macdSlopeDown = macdLine_4h < macdLine_4h[1]
-macdAboveSignal = macdLine_4h > signalLine_4h
+[exitMacd, exitSignal, exitHist] = request.security(
+    syminfo.tickerid,
+    exitTf,
+    f_macd_line(close, macdFast, macdSlow, macdSignal),
+    barmerge.gaps_off,
+    barmerge.lookahead_off
+)
 
-macdRollOver = macdAboveSignal and macdSlopeDown
+//----------------------------------------------------
+// SETUP STATE LOGIC
+// Public-safe version of:
+// "RSI previously hot, then washed out"
+//----------------------------------------------------
+var bool xlmSetupArmed = false
 
-// === SELL ===
-sellSignal = (rsi_4h > 80) or macdRollOver
+hadHighRsiRecently = ta.highest(setupRsi, 50) > setupUpperThreshold
+pulledBackDeep     = setupRsi < setupLowerThreshold
 
-// === PLOTTING ===
-plotshape(initialSetup, title="Initial Buy Setup", location=location.belowbar, color=color.yellow, style=shape.triangleup, size=size.small, text="SETUP")
+if hadHighRsiRecently and pulledBackDeep
+    xlmSetupArmed := true
 
-plotshape(confirmation, title="Buy Confirmation", location=location.belowbar, color=color.green, style=shape.triangleup, size=size.normal, text="BUY")
+// Reset arm after confirmation or exit
+//----------------------------------------------------
+// CONFIRMATION LOGIC
+// Public-safe version of:
+// "RSI recovers and MACD confirms"
+//----------------------------------------------------
+rsiRecoveryConfirm = ta.crossover(setupRsi, confirmCrossLevel)
+macdBullConfirm    = ta.crossover(setupMacd, setupSignal)
 
-plotshape(sellSignal, title="Sell Signal", location=location.abovebar, color=color.red, style=shape.triangledown, size=size.normal, text="SELL")
+initialSetupSignal = xlmSetupArmed and pulledBackDeep
+buyConfirmSignal   = xlmSetupArmed and rsiRecoveryConfirm and macdBullConfirm
 
-// === ALERT CONDITIONS ===
-alertcondition(initialSetup, title="XLM Initial Buy Setup",
-     message="XLM Initial Buy Setup: RSI crossed down through 10 after >80 (2h) | {{ticker}} @ {{close}} | {{timenow}}")
+if buyConfirmSignal
+    xlmSetupArmed := false
 
-alertcondition(confirmation, title="XLM BUY CONFIRMED",
-     message="XLM BUY CONFIRMED: RSI crossed up 10 + MACD cross up (2h) | {{ticker}} @ {{close}} | {{timenow}}")
+//----------------------------------------------------
+// EXIT LOGIC
+// Public-safe version of:
+// "Higher timeframe RSI hot OR MACD rolling over"
+//----------------------------------------------------
+macdRollingOver = exitMacd > exitSignal and exitMacd < exitMacd[1]
+sellByRsi       = exitRsi > exitRsiThreshold
+sellByMacd      = useMacdExitSlope and macdRollingOver
 
-alertcondition(sellSignal, title="XLM SELL",
-     message="XLM SELL: RSI>80 (4h) or MACD rolling over above signal (4h) | {{ticker}} @ {{close}} | {{timenow}}")
+sellSignal = sellByRsi or sellByMacd
+
+//----------------------------------------------------
+// PLOTS
+//----------------------------------------------------
+plotshape(initialSetupSignal, title="XLM Initial Buy Setup", style=shape.circle, location=location.belowbar, size=size.tiny, text="SETUP")
+plotshape(buyConfirmSignal, title="XLM Buy Confirmed", style=shape.triangleup, location=location.belowbar, size=size.small, text="BUY")
+plotshape(sellSignal, title="XLM Sell", style=shape.triangledown, location=location.abovebar, size=size.small, text="SELL")
+
+bgcolor(showBg and initialSetupSignal ? color.new(color.orange, 85) : na)
+bgcolor(showBg and buyConfirmSignal ? color.new(color.green, 85) : na)
+bgcolor(showBg and sellSignal ? color.new(color.red, 85) : na)
+
+// Optional labels
+if showLabels and initialSetupSignal
+    label.new(bar_index, low, "XLM Setup\nRSI pullback armed", style=label.style_label_up, textcolor=color.white, color=color.orange)
+
+if showLabels and buyConfirmSignal
+    label.new(bar_index, low, "XLM Buy Confirmed\nRSI recovery + MACD cross", style=label.style_label_up, textcolor=color.white, color=color.green)
+
+if showLabels and sellSignal
+    label.new(bar_index, high, "XLM Sell\nHTF RSI or MACD rollover", style=label.style_label_down, textcolor=color.white, color=color.red)
+
+//----------------------------------------------------
+// ALERTS
+//----------------------------------------------------
+alertcondition(
+    initialSetupSignal,
+    title="XLM Initial Buy Setup",
+    message="XLM Initial Buy Setup: public sample logic triggered | {{ticker}} @ {{close}} | {{timenow}}"
+)
+
+alertcondition(
+    buyConfirmSignal,
+    title="XLM BUY CONFIRMED",
+    message="XLM BUY CONFIRMED: public sample logic triggered | {{ticker}} @ {{close}} | {{timenow}}"
+)
+
+alertcondition(
+    sellSignal,
+    title="XLM SELL",
+    message="XLM SELL: public sample exit logic triggered | {{ticker}} @ {{close}} | {{timenow}}"
+)
